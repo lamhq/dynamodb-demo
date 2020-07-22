@@ -12,6 +12,7 @@
     "eslint-plugin-import": "^2.22.0"
   },
   "dependencies": {
-    "aws-sdk": "^2.716.0"
+    "aws-sdk": "^2.716.0",
+    "faker": "^4.1.0"
   }
 }

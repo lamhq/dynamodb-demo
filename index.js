@@ -1,14 +1,16 @@
+/* eslint-disable no-console */
 const AWS = require('aws-sdk');
 const fs = require('fs');
+const faker = require('faker');
 
 AWS.config.update({
   region: 'us-west-2',
   endpoint: 'http://localhost:8000',
 });
+const dynamodb = new AWS.DynamoDB();
+const docClient = new AWS.DynamoDB.DocumentClient();
 
 function createTable() {
-  const dynamodb = new AWS.DynamoDB();
-
   const params = {
     TableName: 'Movies',
     KeySchema: [
@@ -25,39 +27,111 @@ function createTable() {
     },
   };
 
-  dynamodb.createTable(params, (err, data) => {
-    if (err) {
-      console.error('Unable to create table. Error JSON:', JSON.stringify(err, null, 2));
-    } else {
-      console.log('Created table. Table description JSON:', JSON.stringify(data, null, 2));
-    }
-  });
-}
-
-function importData() {
-  const docClient = new AWS.DynamoDB.DocumentClient();
-  console.log('Importing movies into DynamoDB. Please wait.');
-
-  const allMovies = JSON.parse(fs.readFileSync('moviedata.json', 'utf8'));
-  allMovies.forEach((movie) => {
-    const params = {
-      TableName: 'Movies',
-      Item: {
-        year: movie.year, title: movie.title, info: movie.info,
-      },
-    };
-    docClient.put(params, (err, data) => {
+  return new Promise((rs, rj) => {
+    dynamodb.createTable(params, (err, data) => {
       if (err) {
-        console.error('Unable to add movie', movie.title, '. Error JSON:', JSON.stringify(err, null, 2));
+        console.error('Unable to create table. Error JSON:', JSON.stringify(err, null, 2));
+        rj(err);
       } else {
-        console.log('PutItem succeeded:', movie.title);
+        console.log('Created table. Table description JSON:', JSON.stringify(data, null, 2));
+        rs();
       }
     });
   });
 }
 
+function createIndex() {
+  const params = {
+    TableName: 'Movies',
+    AttributeDefinitions: [
+      // The index key attributes can consist of any top-level attribute
+      // AttributeType must be String, Number, or Binary
+      { AttributeName: 'isActive', AttributeType: 'N' },
+
+      /* you can optionally specify a sort key */
+      // { AttributeName: 'releaseDate', AttributeType: 'S' },
+    ],
+    GlobalSecondaryIndexUpdates: [
+      {
+        Create: {
+          IndexName: 'IsActive',
+          KeySchema: [
+            { AttributeName: 'isActive', KeyType: 'HASH' },
+            // { AttributeName: 'releaseDate', KeyType: 'RANGE' },
+          ],
+          Projection: {
+            // you can project all attributes into a global secondary index.
+            // This gives you maximum flexibility.
+            // However, your storage cost would increase, or even double.
+            ProjectionType: 'ALL',
+          },
+          ProvisionedThroughput: { ReadCapacityUnits: 9999, WriteCapacityUnits: 9999 },
+        },
+      },
+    ],
+  };
+  return new Promise((rs, rj) => {
+    dynamodb.updateTable(params, (err, data) => {
+      if (err) {
+        console.error('Unable to update table. Error JSON:', JSON.stringify(err, null,
+          2));
+        rj(err);
+      } else {
+        console.log('Updated table. Table description JSON:', JSON.stringify(data,
+          null, 2));
+        rs();
+      }
+    });
+  });
+}
+
+function deleteTable() {
+  const params = {
+    TableName: 'Movies',
+  };
+
+  return new Promise((rs, rj) => {
+    dynamodb.deleteTable(params, (err, data) => {
+      if (err) {
+        console.error('Unable to delete table. Error JSON:', JSON.stringify(err, null, 2));
+        rj(err);
+      } else {
+        console.log('Deleted table. Table description JSON:', JSON.stringify(data, null, 2));
+        rs();
+      }
+    });
+  });
+}
+
+function importData() {
+  console.log('Importing movies into DynamoDB. Please wait.');
+  const allMovies = JSON.parse(fs.readFileSync('moviedata.json', 'utf8'));
+  return Promise.all(allMovies.map((movie) => {
+    const params = {
+      TableName: 'Movies',
+      Item: {
+        year: movie.year,
+        title: movie.title,
+        isActive: faker.helpers.randomize([1, 0]),
+        releaseDate: movie.info.release_date,
+        info: movie.info,
+      },
+    };
+    return new Promise((rs, rj) => {
+      docClient.put(params, (err, data) => {
+        if (err) {
+          console.error('Unable to add movie', movie.title, '. Error JSON:', JSON.stringify(err, null, 2));
+          rj(err);
+        } else {
+          console.log('PutItem succeeded:', movie.title);
+          rs(data);
+        }
+      });
+    });
+  }));
+}
+
 function read() {
-  const docClient = new AWS.DynamoDB.DocumentClient();
   const table = 'Movies';
   const year = 2004;
   const title = 'Little Black Book';
@@ -80,7 +154,6 @@ function read() {
 }
 
 function query() {
-  const docClient = new AWS.DynamoDB.DocumentClient();
   console.log('Querying for movies from 2004.');
   const params = {
     TableName: 'Movies',
@@ -88,22 +161,52 @@ function query() {
     ExpressionAttributeNames: { '#yr': 'year' },
     ExpressionAttributeValues: { ':yyyy': 2004 },
   };
-  docClient.query(params, (err, data) => {
-    if (err) {
-      console.error('Unable to query. Error:', JSON.stringify(err, null, 2));
-    } else {
-      console.log('Query succeeded.');
-      data.Items.forEach((item) => {
-        console.log(' -', `${item.year}: ${item.title}`);
-      });
-    }
+  return new Promise((rs, rj) => {
+    docClient.query(params, (err, data) => {
+      if (err) {
+        console.error('Unable to query. Error:', JSON.stringify(err, null, 2));
+        rj(err);
+      } else {
+        console.log('Query succeeded.');
+        data.Items.forEach((item) => {
+          console.log(' -', `${item.year}: ${item.title}`);
+        });
+        rs(data);
+      }
+    });
+  });
+}
+
+function queryOnGSI() {
+  console.log('Querying for active movies.');
+  const params = {
+    TableName: 'Movies',
+    IndexName: 'IsActive',
+    KeyConditionExpression: 'isActive = :val',
+    ExpressionAttributeValues: {
+      ':val': 1,
+    },
+    Limit: 30,
+  };
+  return new Promise((rs, rj) => {
+    docClient.query(params, (err, data) => {
+      if (err) {
+        console.error('Unable to query. Error:', JSON.stringify(err, null, 2));
+        rj(err);
+      } else {
+        console.log('Query succeeded.');
+        data.Items.forEach((item) => {
+          console.log(item);
+        });
+        rs(data);
+      }
+    });
   });
 }
 
 let lastEvaluatedKey = null;
 
 function paginatedQuery() {
-  const docClient = new AWS.DynamoDB.DocumentClient();
   console.log('Querying for movies from 2004.');
   const params = {
     TableName: 'Movies',
@@ -131,4 +234,16 @@ function paginatedQuery() {
   });
 }
 
-paginatedQuery();
+async function run() {
+  /* Please setup and run DynamoDB in your local machine before running this script */
+  // https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.DownloadingAndRunning.html
+
+  // await deleteTable();
+  await createTable();
+  await importData();
+  await createIndex();
+  await query();
+  await queryOnGSI();
+}
+
+run();
