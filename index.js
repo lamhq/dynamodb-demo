@@ -46,18 +46,18 @@ function createIndex() {
     AttributeDefinitions: [
       // The index key attributes can consist of any top-level attribute
       // AttributeType must be String, Number, or Binary
-      { AttributeName: 'isActive', AttributeType: 'N' },
+      { AttributeName: 'isActiveAndAuthorId', AttributeType: 'S' },
 
       /* you can optionally specify a sort key */
-      // { AttributeName: 'releaseDate', AttributeType: 'S' },
+      { AttributeName: 'releaseDate', AttributeType: 'S' },
     ],
     GlobalSecondaryIndexUpdates: [
       {
         Create: {
-          IndexName: 'IsActive',
+          IndexName: 'IsActiveAndAuthorId',
           KeySchema: [
-            { AttributeName: 'isActive', KeyType: 'HASH' },
-            // { AttributeName: 'releaseDate', KeyType: 'RANGE' },
+            { AttributeName: 'isActiveAndAuthorId', KeyType: 'HASH' },
+            { AttributeName: 'releaseDate', KeyType: 'RANGE' },
           ],
           Projection: {
             // you can project all attributes into a global secondary index.
@@ -107,12 +107,15 @@ function importData() {
   console.log('Importing movies into DynamoDB. Please wait.');
   const allMovies = JSON.parse(fs.readFileSync('moviedata.json', 'utf8'));
   return Promise.all(allMovies.map((movie) => {
+    const isActive = faker.helpers.randomize([1, 0]);
+    const authorId = faker.helpers.randomize([1, 2, 3, 4, 5]);
+    const isActiveAndAuthorId = `${isActive}-${authorId}`;
     const params = {
       TableName: 'Movies',
       Item: {
         year: movie.year,
         title: movie.title,
-        isActive: faker.helpers.randomize([1, 0]),
+        isActiveAndAuthorId,
         releaseDate: movie.info.release_date,
         info: movie.info,
       },
@@ -178,13 +181,26 @@ function query() {
 }
 
 function queryOnGSI() {
-  console.log('Querying for active movies.');
+  /*
+   * Each table/index must have 1 hash key and 0 or 1 range keys.
+   * https://stackoverflow.com/questions/54678479/getting-key-schema-too-big-error-with-localsecondaryindexes-wth-dynamodb
+   * https://stackoverflow.com/questions/29187924/dynamodb-query-using-more-than-two-attributes
+   * https://stackoverflow.com/questions/17663695/is-there-a-way-to-query-multiple-hash-keys-in-dynamodb
+   */
+
+  /*
+   * You can only query a single DynamoDB index at a time.
+   * You cannot use multiple indexes in the same query.
+   * A more advanced alternative is to make a compound key.
+   * https://stackoverflow.com/questions/44982204/querying-with-multiple-local-secondary-index-dynamodb
+   */
+  console.log('Querying for active movies with authorId=5.');
   const params = {
     TableName: 'Movies',
-    IndexName: 'IsActive',
-    KeyConditionExpression: 'isActive = :val',
+    IndexName: 'IsActiveAndAuthorId',
+    KeyConditionExpression: 'isActiveAndAuthorId = :val',
     ExpressionAttributeValues: {
-      ':val': 1,
+      ':val': '1-5',
     },
     Limit: 30,
   };
@@ -195,9 +211,7 @@ function queryOnGSI() {
         rj(err);
       } else {
         console.log('Query succeeded.');
-        data.Items.forEach((item) => {
-          console.log(item);
-        });
+        console.log(data.Items);
         rs(data);
       }
     });
@@ -239,10 +253,10 @@ async function run() {
   // https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.DownloadingAndRunning.html
 
   // await deleteTable();
-  await createTable();
-  await importData();
-  await createIndex();
-  await query();
+  // await createTable();
+  // await importData();
+  // await createIndex();
+  // await query();
   await queryOnGSI();
 }
 
