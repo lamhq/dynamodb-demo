@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 /* eslint-disable no-console */
 const AWS = require('aws-sdk');
 const fs = require('fs');
@@ -46,18 +47,18 @@ function createIndex() {
     AttributeDefinitions: [
       // The index key attributes can consist of any top-level attribute
       // AttributeType must be String, Number, or Binary
-      { AttributeName: 'isActiveAndAuthorId', AttributeType: 'S' },
+      { AttributeName: 'is_activeAndcompany_id', AttributeType: 'S' },
 
       /* you can optionally specify a sort key */
-      { AttributeName: 'releaseDate', AttributeType: 'S' },
+      { AttributeName: 'created_date', AttributeType: 'S' },
     ],
     GlobalSecondaryIndexUpdates: [
       {
         Create: {
-          IndexName: 'IsActiveAndAuthorId',
+          IndexName: 'is_active_and_company_id',
           KeySchema: [
-            { AttributeName: 'isActiveAndAuthorId', KeyType: 'HASH' },
-            { AttributeName: 'releaseDate', KeyType: 'RANGE' },
+            { AttributeName: 'is_activeAndcompany_id', KeyType: 'HASH' },
+            { AttributeName: 'created_date', KeyType: 'RANGE' },
           ],
           Projection: {
             // you can project all attributes into a global secondary index.
@@ -107,16 +108,17 @@ function importData() {
   console.log('Importing movies into DynamoDB. Please wait.');
   const allMovies = JSON.parse(fs.readFileSync('moviedata.json', 'utf8'));
   return Promise.all(allMovies.map((movie) => {
-    const isActive = faker.helpers.randomize([1, 0]);
+    const is_active = faker.helpers.randomize([1, 0]);
     const authorId = faker.helpers.randomize([1, 2, 3, 4, 5]);
-    const isActiveAndAuthorId = `${isActive}-${authorId}`;
+    const is_activeAndcompany_id = `${is_active}-${authorId}`;
+    const created_date = movie.info.release_date;
     const params = {
       TableName: 'Movies',
       Item: {
         year: movie.year,
         title: movie.title,
-        isActiveAndAuthorId,
-        releaseDate: movie.info.release_date,
+        is_activeAndcompany_id,
+        created_date,
         info: movie.info,
       },
     };
@@ -197,8 +199,8 @@ function queryOnGSI() {
   console.log('Querying for active movies with authorId=5.');
   const params = {
     TableName: 'Movies',
-    IndexName: 'IsActiveAndAuthorId',
-    KeyConditionExpression: 'isActiveAndAuthorId = :val',
+    IndexName: 'is_active_and_company_id',
+    KeyConditionExpression: 'is_activeAndcompany_id = :val',
     ExpressionAttributeValues: {
       ':val': '1-5',
     },
